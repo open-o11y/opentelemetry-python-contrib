@@ -29,9 +29,13 @@ from opentelemetry.sdk.metrics.export.aggregate import (
     ValueObserverAggregator,
 )
 
+from .protobufs.types_pb2 import (
+    TimeSeries
+)
+
 
 class TimeSeriesData:
-    def __init__(self, labels, samples):
+    def __init__(self, labels, samples) -> TimeSeries:
         self.labels = labels
         self.samples = samples
 
