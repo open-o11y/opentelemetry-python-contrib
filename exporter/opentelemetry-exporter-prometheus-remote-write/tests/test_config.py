@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import unittest
 
-import yaml
-from opentelemetry.exporter.prometheus_remote_write import Config, parse_config
+from opentelemetry.exporter.prometheus_remote_write import Config
 
 
 class TestConfig(unittest.TestCase):
@@ -49,8 +47,8 @@ class TestConfig(unittest.TestCase):
             self.fail("valid config failed config.validate()")
 
     def test_invalid_no_endpoint_config(self):
-        with self.assertRaises(TypeError):
-            Config()
+        with self.assertRaises(ValueError):
+            Config("")
 
     def test_invalid_no_username_config(self):
         with self.assertRaises(ValueError):
@@ -95,28 +93,3 @@ class TestConfig(unittest.TestCase):
                 },
                 bearer_token="test_bearer_token",
             )
-
-    # Verifies that valid yaml file is parsed correctly
-    def test_valid_yaml_file(self):
-        yml_dict = [{"endpoint": ["/prom/test_endpoint"]}]
-        filepath = "./test.yml"
-        with open(filepath, "w") as file:
-            yaml.dump(yml_dict, file)
-        config = parse_config(filepath)
-        os.remove(filepath)
-        self.assertEqual(config.endpoint, "/prom/test_endpoint")
-
-    # Ensures invalid filepath raises error when parsing
-    def test_invalid_yaml_filepath(self):
-        filepath = "/incorrect_filepath.yml"
-        with self.assertRaises(FileNotFoundError):
-            parse_config(filepath)
-
-    # Ensures incorrect file type raises error when parsing
-    def test_incorrect_file_type(self):
-        filepath = "/tmp/test.txt"
-        with open(filepath, "w"):
-            pass
-        with self.assertRaises(ValueError):
-            parse_config(filepath)
-        os.remove(filepath)

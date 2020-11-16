@@ -13,9 +13,12 @@
 # limitations under the License.
 
 
+import re
+from math import inf
 from typing import Dict, Sequence
 
 import yaml
+
 from opentelemetry.sdk.metrics.export import (
     MetricRecord,
     MetricsExporter,
@@ -29,11 +32,7 @@ from opentelemetry.sdk.metrics.export.aggregate import (
     ValueObserverAggregator,
 )
 
-from .protobufs.types_pb2 import (
-    TimeSeries,
-    Label,
-    Sample,
-)
+from .prom_pb.types_pb2 import Label, Sample, TimeSeries
 
 
 class Config:
@@ -155,77 +154,127 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     def shutdown(self) -> None:
         pass
 
-    # pylint: disable=no-member
-    def create_time_series(self, record: MetricRecord, extra_labels, value) \
-            -> TimeSeries:
-        sample = Sample()
-        sample.value = float(value)
-        sample.timestamp = record.aggregator.last_update_timestamp
-
-        timeseries = TimeSeries()
-        # add labels
-        labels = self.create_labelset(extra_labels)
-        timeseries.labels.append(labels)
-        # add sample
-        timeseries.samples.append(sample)
-        return timeseries
-
-    def create_labelset(self, extra_labels) -> Sequence[Label]:
-        labels = []
-        for label in extra_labels:
-            tmp_label = Label()
-            tmp_label.name = label[0]
-            tmp_label.value = label[1]
-            labels.append(tmp_label)
-        return labels
-
-    def convert_to_timeseries(self, metric_records: Sequence[MetricRecord]) \
-            -> Sequence[TimeSeries]:
-        switcher = {
-            "MinMaxSumCountAggregator": self.convert_from_min_max_sum_count,
-            "SumAggregator": self.convert_from_sum,
-            "HistogramAggregator": self.convert_from_histogram,
-            "LastValueAggregator": self.convert_from_last_value,
-            "ValueObserverAggregator": self.convert_from_last_value,
+    def convert_to_timeseries(
+        self, metric_records: Sequence[MetricRecord]
+    ) -> Sequence[TimeSeries]:
+        converter_map = {
+            MinMaxSumCountAggregator: self.convert_from_min_max_sum_count,
+            SumAggregator: self.convert_from_sum,
+            HistogramAggregator: self.convert_from_histogram,
+            LastValueAggregator: self.convert_from_last_value,
+            ValueObserverAggregator: self.convert_from_last_value,
         }
         timeseries = []
-        for record in metric_records:
-            converter = switcher.get(
-                type(record).__name__, lambda: "INVALID AGGREGATOR"
-            )
-            timeseries.append(converter(record))
+        for metric_record in metric_records:
+            aggregator_type = type(metric_record.aggregator)
+            converter = converter_map.get(aggregator_type)
+            if not converter:
+                raise ValueError(
+                    str(aggregator_type) + " conversion is not supported"
+                )
+            timeseries.extend(converter(metric_record))
         return timeseries
 
     def convert_from_sum(self, sum_record: MetricRecord) -> TimeSeries:
-        pass
+        name = sum_record.instrument.name
+        value = sum_record.aggregator.checkpoint
+        return [self.create_timeseries(sum_record, name, value)]
 
     def convert_from_min_max_sum_count(
         self, min_max_sum_count_record: MetricRecord
     ) -> TimeSeries:
-        pass
+        timeseries = []
+        agg_types = ["min", "max", "sum", "count"]
+        for agg_type in agg_types:
+            name = min_max_sum_count_record.instrument.name + "_" + agg_type
+            value = getattr(min_max_sum_count_record.aggregator.checkpoint, agg_type)
+            timeseries.append(
+                self.create_timeseries(min_max_sum_count_record, name, value)
+            )
+        return timeseries
 
     def convert_from_histogram(
         self, histogram_record: MetricRecord
     ) -> TimeSeries:
-        pass
+        count = 0
+        timeseries = []
+        for bound in histogram_record.aggregator.checkpoint.keys():
+            bb = "+Inf" if bound == float("inf") else str(bound)
+            name = (
+                histogram_record.instrument.name + '_bucket{le="' + bb + '"}'
+            )
+            value = histogram_record.aggregator.checkpoint[bound]
+            timeseries.append(
+                self.create_timeseries(histogram_record, name, value)
+            )
+            count += value
+        name = histogram_record.instrument.name + "_count"
+        timeseries.append(
+            self.create_timeseries(histogram_record, name, float(count))
+        )
+        return timeseries
 
     def convert_from_last_value(
         self, last_value_record: MetricRecord
     ) -> TimeSeries:
-        pass
+        name = last_value_record.instrument.name
+        value = last_value_record.aggregator.checkpoint
+        return [self.create_timeseries(last_value_record, name, value)]
 
     def convert_from_value_observer(
         self, value_observer_record: MetricRecord
     ) -> TimeSeries:
+        timeseries = []
+        agg_types = ["min", "max", "sum", "count", "last"]
+        for agg_type in agg_types:
+            name = value_observer_record.instrument.name + "_" + agg_type
+            value = getattr(value_observer_record.aggregator.checkpoint, agg_type)
+            timeseries.append(
+                self.create_timeseries(value_observer_record, name, value)
+            )
+        return timeseries
+
+    # TODO: Implement convert from summary once quantile/summary support added to SDK
+    def convert_from_summary(self, summary_record: MetricRecord) -> TimeSeries:
         pass
 
-    def convert_from_summary(
-        self, summary_record: MetricRecord
+    # pylint: disable=no-member
+    def create_timeseries(
+        self, metric_record: MetricRecord, name, value: float
     ) -> TimeSeries:
-        pass
+        timeseries = TimeSeries()
+        # Add name label, record labels and resource labels
+        timeseries.labels.append(self.create_label("__name__", name))
+        resource_attributes = metric_record.resource.attributes
+        for label_name, label_value in resource_attributes.items():
+            timeseries.labels.append(
+                self.create_label(label_name, label_value)
+            )
+        for label in metric_record.labels:
+            if label[0][0] not in resource_attributes.keys():
+                timeseries.labels.append(
+                    self.create_label(label[0][0], label[0][1])
+                )
+        # Add sample
+        timeseries.samples.append(
+            self.create_sample(
+                metric_record.aggregator.last_update_timestamp, value
+            )
+        )
+        return timeseries
 
-    def sanitize_label(self, label: str) -> str:
-        pass
+    def create_sample(self, timestamp: int, value: float) -> Sample:
+        sample = Sample()
+        sample.timestamp = timestamp
+        sample.value = value
+        return sample
+
+    def create_label(self, name: str, value: str) -> Label:
+        label = Label()
+        # Label name must contain only alphanumeric characters and underscores
+        label.name = re.sub("[^0-9a-zA-Z]+", "_", name)
+        label.value = value
+        return label
 
     def build_message(self, data: Sequence[TimeSeries]) -> str:
         pass
@@ -235,21 +284,3 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
 
     def send_message(self, message: str) -> int:
         pass
-
-
-def parse_config(filepath: str) -> Config:
-    if not filepath.endswith(".yml"):
-        raise ValueError("filepath must point to a .yml file")
-    yaml_dict = {}
-    with open(filepath, "r") as file:
-        yaml_dict = yaml.load(file, Loader=yaml.FullLoader)
-
-    endpoint = yaml_dict[0].get("endpoint", [""])[0]
-    basic_auth = yaml_dict[0].get("basic_auth", [{}])[0]
-    bearer_token = yaml_dict[0].get("bearer_token", [""])[0]
-    bearer_token_file = yaml_dict[0].get("bearer_token_file", [""])[0]
-    headers = yaml_dict[0].get("headers", [{}])[0]
-
-    return Config(
-        endpoint, basic_auth, bearer_token, bearer_token_file, headers
-    )
