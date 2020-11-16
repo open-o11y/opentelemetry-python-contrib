@@ -30,17 +30,10 @@ from opentelemetry.sdk.metrics.export.aggregate import (
 )
 
 from .protobufs.types_pb2 import (
-    TimeSeries
+    TimeSeries,
+    Label,
+    Sample,
 )
-
-
-class TimeSeriesData:
-    def __init__(self, labels, samples) -> TimeSeries:
-        self.labels = labels
-        self.samples = samples
-
-    def __eq__(self, other) -> bool:
-        return self.labels == other.labels and self.samples == other.samples
 
 
 class Config:
@@ -162,43 +155,79 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     def shutdown(self) -> None:
         pass
 
-    def convert_to_timeseries(
-        self, metric_records: Sequence[MetricRecord]
-    ) -> Sequence[TimeSeriesData]:
-        pass
+    # pylint: disable=no-member
+    def create_time_series(self, record: MetricRecord, extra_labels, value) \
+            -> TimeSeries:
+        sample = Sample()
+        sample.value = float(value)
+        sample.timestamp = record.aggregator.last_update_timestamp
 
-    def convert_from_sum(self, sum_record: MetricRecord) -> TimeSeriesData:
+        timeseries = TimeSeries()
+        # add labels
+        labels = self.create_labelset(extra_labels)
+        timeseries.labels.append(labels)
+        # add sample
+        timeseries.samples.append(sample)
+        return timeseries
+
+    def create_labelset(self, extra_labels) -> Sequence[Label]:
+        labels = []
+        for label in extra_labels:
+            tmp_label = Label()
+            tmp_label.name = label[0]
+            tmp_label.value = label[1]
+            labels.append(tmp_label)
+        return labels
+
+    def convert_to_timeseries(self, metric_records: Sequence[MetricRecord]) \
+            -> Sequence[TimeSeries]:
+        switcher = {
+            "MinMaxSumCountAggregator": self.convert_from_min_max_sum_count,
+            "SumAggregator": self.convert_from_sum,
+            "HistogramAggregator": self.convert_from_histogram,
+            "LastValueAggregator": self.convert_from_last_value,
+            "ValueObserverAggregator": self.convert_from_last_value,
+        }
+        timeseries = []
+        for record in metric_records:
+            converter = switcher.get(
+                type(record).__name__, lambda: "INVALID AGGREGATOR"
+            )
+            timeseries.append(converter(record))
+        return timeseries
+
+    def convert_from_sum(self, sum_record: MetricRecord) -> TimeSeries:
         pass
 
     def convert_from_min_max_sum_count(
         self, min_max_sum_count_record: MetricRecord
-    ) -> TimeSeriesData:
+    ) -> TimeSeries:
         pass
 
     def convert_from_histogram(
         self, histogram_record: MetricRecord
-    ) -> TimeSeriesData:
+    ) -> TimeSeries:
         pass
 
     def convert_from_last_value(
         self, last_value_record: MetricRecord
-    ) -> TimeSeriesData:
+    ) -> TimeSeries:
         pass
 
     def convert_from_value_observer(
         self, value_observer_record: MetricRecord
-    ) -> TimeSeriesData:
+    ) -> TimeSeries:
         pass
 
     def convert_from_summary(
         self, summary_record: MetricRecord
-    ) -> TimeSeriesData:
+    ) -> TimeSeries:
         pass
 
     def sanitize_label(self, label: str) -> str:
         pass
 
-    def build_message(self, data: Sequence[TimeSeriesData]) -> str:
+    def build_message(self, data: Sequence[TimeSeries]) -> str:
         pass
 
     def get_headers(self) -> Dict:
