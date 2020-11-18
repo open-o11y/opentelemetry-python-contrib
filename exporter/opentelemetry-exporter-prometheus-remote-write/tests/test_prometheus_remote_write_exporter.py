@@ -20,12 +20,10 @@ from opentelemetry.exporter.prometheus_remote_write import (
     PrometheusRemoteWriteMetricsExporter,
 )
 from opentelemetry.exporter.prometheus_remote_write.prom_pb.types_pb2 import (
-    Label,
-    Sample,
     TimeSeries,
 )
 from opentelemetry.sdk.metrics import Counter
-from opentelemetry.sdk.metrics.export import MetricRecord
+from opentelemetry.sdk.metrics.export import ExportRecord, MetricsExportResult
 from opentelemetry.sdk.metrics.export.aggregate import (
     HistogramAggregator,
     LastValueAggregator,
@@ -45,11 +43,11 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             "testname", "testdesc", "testunit", int, None
         )
 
-        def generate_record(agg_type):
-            return MetricRecord(
+        def generate_record(aggregator_type):
+            return ExportRecord(
                 self._test_metric,
                 None,
-                agg_type(),
+                aggregator_type(),
                 Resource({}),
             )
 
@@ -60,20 +58,21 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
 
         self._converter_mock = mock.MagicMock(return_value=converter_method)
 
-    # # Ensures export is successful with valid metric_records and config
-    # def test_export(self):
-    #     record = MetricRecord(
-    #         self._test_metric,
-    #         self._labels_key,
-    #         SumAggregator(),
-    #         get_meter_provider().resource,
-    #     )
-    #     exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-    #     result = exporter.export([record])
-    #     self.assertIs(result, MetricsExportResult.SUCCESS)
+    # Ensures export is successful with valid export_records and config
+    def test_export(self):
+        record = self._generate_record(SumAggregator)
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        exporter.convert_to_timeseries = mock.Mock(return_value=[])
+        exporter.build_message = mock.Mock(return_value=bytes())
+        exporter.get_headers = mock.Mock(return_value={})
+        exporter.send_message = mock.Mock(
+            return_value=MetricsExportResult.SUCCESS
+        )
+        result = exporter.export([record])
+        self.assertIs(result, MetricsExportResult.SUCCESS)
 
-    # Ensures conversion to timeseries function as expected for different aggregation types
-    def test_convert_to_timeseries(self):
+    # Ensures conversion to timeseries function works with valid aggregation types
+    def test_valid_convert_to_timeseries(self):
         timeseries_mock_method = mock.Mock(return_value=["test_value"])
         exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
         exporter.convert_from_sum = timeseries_mock_method
@@ -94,6 +93,13 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             self.assertEqual(timeseries, "test_value")
 
         no_type_records = [self._generate_record(lambda: None)]
+        with self.assertRaises(ValueError):
+            exporter.convert_to_timeseries(no_type_records)
+
+    # Ensures conversion to timeseries fails for unsupported aggregation types
+    def test_invalid_convert_to_timeseries(self):
+        no_type_records = [self._generate_record(lambda: None)]
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
         with self.assertRaises(ValueError):
             exporter.convert_to_timeseries(no_type_records)
 
@@ -138,9 +144,7 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
 
     # Ensures histogram aggregator is correctly converted to timeseries
     def test_convert_from_histogram(self):
-        histogram_record = self._generate_record(
-            HistogramAggregator
-        )
+        histogram_record = self._generate_record(HistogramAggregator)
         histogram_record.aggregator.update(5)
         histogram_record.aggregator.update(2)
         histogram_record.aggregator.update(-1)
@@ -149,15 +153,20 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
         exporter.create_timeseries = self._converter_mock()
         timeseries = exporter.convert_from_histogram(histogram_record)
-        self.assertEqual(timeseries[0], (HistogramAggregator, 'testname_bucket{le="0"}', 1))
-        self.assertEqual(timeseries[1], (HistogramAggregator, 'testname_bucket{le="+Inf"}', 2))
-        self.assertEqual(timeseries[2], (HistogramAggregator, "testname_count", 3))
+        self.assertEqual(
+            timeseries[0], (HistogramAggregator, 'testname_bucket{le="0"}', 1)
+        )
+        self.assertEqual(
+            timeseries[1],
+            (HistogramAggregator, 'testname_bucket{le="+Inf"}', 2),
+        )
+        self.assertEqual(
+            timeseries[2], (HistogramAggregator, "testname_count", 3)
+        )
 
     # Ensures last value aggregator is correctly converted to timeseries
     def test_convert_from_last_value(self):
-        last_value_record = self._generate_record(
-            LastValueAggregator
-        )
+        last_value_record = self._generate_record(LastValueAggregator)
         last_value_record.aggregator.update(1)
         last_value_record.aggregator.update(5)
         last_value_record.aggregator.take_checkpoint()
@@ -169,9 +178,7 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
 
     # Ensures value observer aggregator is correctly converted to timeseries
     def test_convert_from_value_observer(self):
-        value_observer_record = self._generate_record(
-            ValueObserverAggregator
-        )
+        value_observer_record = self._generate_record(ValueObserverAggregator)
         value_observer_record.aggregator.update(5)
         value_observer_record.aggregator.update(1)
         value_observer_record.aggregator.update(2)
@@ -198,8 +205,9 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             timeseries[4], (ValueObserverAggregator, "testname_last", 2)
         )
 
-    # TODO: Implement summary converter test once quantile/summary support added to SDK
-    def test_convert_from_summary(self):
+    # Ensures quantile aggregator is correctly converted to timeseries
+    # TODO: Add test once method is implemented
+    def test_convert_from_quantile(self):
         pass
 
     # Ensures timeseries produced contains appropriate sample and labels
@@ -208,7 +216,7 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         sum_aggregator.update(5)
         sum_aggregator.take_checkpoint()
         sum_aggregator.last_update_timestamp = 10
-        metric_record = MetricRecord(
+        export_record = ExportRecord(
             self._test_metric,
             get_dict_as_key({"record_name": "record_value"}),
             sum_aggregator,
@@ -216,44 +224,48 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         )
         exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
         expected_timeseries = TimeSeries()
-        expected_timeseries.labels.append(exporter.create_label("__name__", "testname"))
-        expected_timeseries.labels.append(exporter.create_label("resource_name", "resource_value"))
-        expected_timeseries.labels.append(exporter.create_label("record_name", "record_value"))
+        expected_timeseries.labels.append(
+            exporter.create_label("__name__", "testname")
+        )
+        expected_timeseries.labels.append(
+            exporter.create_label("resource_name", "resource_value")
+        )
+        expected_timeseries.labels.append(
+            exporter.create_label("record_name", "record_value")
+        )
         expected_timeseries.samples.append(exporter.create_sample(10, 5.0))
-        timeseries = exporter.create_timeseries(metric_record, "testname", 5.0)
+        timeseries = exporter.create_timeseries(export_record, "testname", 5.0)
+        self.assertEqual(timeseries, expected_timeseries)
 
-    # # Verifies that build_message calls snappy.compress and returns SerializedString
-    # @mock.patch("snappy.compress", return_value=1)
-    # def test_build_message(self, mock_compress):
-    #     data = [
-    #         TimeSeriesData(["test_label0"], [0]),
-    #         TimeSeriesData(["test_label1"], [1]),
-    #     ]
-    #     exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-    #     message = exporter.build_message(data)
-    #     self.assertEqual(mock_compress.call_count, 1)
-    #     self.assertIsInstance(message, str)
+    # Verifies that build_message calls snappy.compress and returns SerializedString
+    @mock.patch("snappy.compress", return_value=bytes())
+    def test_build_message(self, mock_compress):
+        test_timeseries = [
+            TimeSeries(),
+            TimeSeries(),
+        ]
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        message = exporter.build_message(test_timeseries)
+        self.assertEqual(mock_compress.call_count, 1)
+        self.assertIsInstance(message, bytes)
 
-    # # Ensure correct headers are added when valid config is provided
-    # def test_get_headers(self):
-    #     test_config = self._test_config
-    #     test_config["headers"] = {"Custom Header": "test_header"}
-    #     test_config["bearer_token"] = "test_token"
-    #     exporter = PrometheusRemoteWriteMetricsExporter(test_config)
-    #     headers = exporter.get_headers()
-    #     self.assertEqual(headers["Content-Encoding"], "snappy")
-    #     self.assertEqual(headers["Content-Type"], "application/x-protobuf")
-    #     self.assertEqual(headers["X-Prometheus-Remote-Write-Version"], "0.1.0")
-    #     self.assertEqual(headers["Authorization"], "test_token")
-    #     self.assertEqual(headers["Custom Header"], "test_header")
+    # Ensure correct headers are added when valid config is provided
+    def test_get_headers(self):
+        test_config = self._test_config
+        test_config.headers = {"Custom Header": "test_header"}
+        test_config.bearer_token = "test_token"
+        exporter = PrometheusRemoteWriteMetricsExporter(test_config)
+        headers = exporter.get_headers()
+        self.assertEqual(headers.get("Content-Encoding", ""), "snappy")
+        self.assertEqual(
+            headers.get("Content-Type", ""), "application/x-protobuf"
+        )
+        self.assertEqual(
+            headers.get("X-Prometheus-Remote-Write-Version", ""), "0.1.0"
+        )
+        self.assertEqual(headers.get("Authorization", ""), "Bearer test_token")
+        self.assertEqual(headers.get("Custom Header", ""), "test_header")
 
-    # def test_send_request(self):
-    #     # TODO: Iron out details of test after implementation
-    #     pass
-
-    # # Ensures non alphanumberic label characters gets replaced with underscore
-    # def test_sanitize_label(self):
-    #     unsanitized_string = "key/metric@data"
-    #     exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-    #     sanitized_string = exporter.sanitize_label(unsanitized_string)
-    #     self.assertEqual(sanitized_string, "key_metric_data")
+    def test_send_message(self):
+        # TODO: Iron out details of test after implementation
+        pass

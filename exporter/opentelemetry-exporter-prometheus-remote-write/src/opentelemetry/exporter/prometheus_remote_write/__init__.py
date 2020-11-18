@@ -17,10 +17,12 @@ import re
 from math import inf
 from typing import Dict, Sequence
 
-import yaml
+import requests
+import snappy
+import logging
 
 from opentelemetry.sdk.metrics.export import (
-    MetricRecord,
+    ExportRecord,
     MetricsExporter,
     MetricsExportResult,
 )
@@ -32,7 +34,10 @@ from opentelemetry.sdk.metrics.export.aggregate import (
     ValueObserverAggregator,
 )
 
+from .prom_pb.remote_pb2 import WriteRequest
 from .prom_pb.types_pb2 import Label, Sample, TimeSeries
+
+logger = logging.getLogger(__name__)
 
 
 class Config:
@@ -144,18 +149,21 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     """
 
     def __init__(self, config: Config):
-        pass
+        self.config = config
 
     def export(
-        self, metric_records: Sequence[MetricRecord]
+        self, export_records: Sequence[ExportRecord]
     ) -> MetricsExportResult:
-        pass
+        timeseries = self.convert_to_timeseries(export_records)
+        message = self.build_message(timeseries)
+        headers = self.get_headers()
+        return self.send_message(message, headers)
 
     def shutdown(self) -> None:
         pass
 
     def convert_to_timeseries(
-        self, metric_records: Sequence[MetricRecord]
+        self, export_records: Sequence[ExportRecord]
     ) -> Sequence[TimeSeries]:
         converter_map = {
             MinMaxSumCountAggregator: self.convert_from_min_max_sum_count,
@@ -165,36 +173,38 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
             ValueObserverAggregator: self.convert_from_last_value,
         }
         timeseries = []
-        for metric_record in metric_records:
-            aggregator_type = type(metric_record.aggregator)
+        for export_record in export_records:
+            aggregator_type = type(export_record.aggregator)
             converter = converter_map.get(aggregator_type)
             if not converter:
                 raise ValueError(
                     str(aggregator_type) + " conversion is not supported"
                 )
-            timeseries.extend(converter(metric_record))
+            timeseries.extend(converter(export_record))
         return timeseries
 
-    def convert_from_sum(self, sum_record: MetricRecord) -> TimeSeries:
+    def convert_from_sum(self, sum_record: ExportRecord) -> TimeSeries:
         name = sum_record.instrument.name
         value = sum_record.aggregator.checkpoint
         return [self.create_timeseries(sum_record, name, value)]
 
     def convert_from_min_max_sum_count(
-        self, min_max_sum_count_record: MetricRecord
+        self, min_max_sum_count_record: ExportRecord
     ) -> TimeSeries:
         timeseries = []
         agg_types = ["min", "max", "sum", "count"]
         for agg_type in agg_types:
             name = min_max_sum_count_record.instrument.name + "_" + agg_type
-            value = getattr(min_max_sum_count_record.aggregator.checkpoint, agg_type)
+            value = getattr(
+                min_max_sum_count_record.aggregator.checkpoint, agg_type
+            )
             timeseries.append(
                 self.create_timeseries(min_max_sum_count_record, name, value)
             )
         return timeseries
 
     def convert_from_histogram(
-        self, histogram_record: MetricRecord
+        self, histogram_record: ExportRecord
     ) -> TimeSeries:
         count = 0
         timeseries = []
@@ -215,50 +225,52 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
         return timeseries
 
     def convert_from_last_value(
-        self, last_value_record: MetricRecord
+        self, last_value_record: ExportRecord
     ) -> TimeSeries:
         name = last_value_record.instrument.name
         value = last_value_record.aggregator.checkpoint
         return [self.create_timeseries(last_value_record, name, value)]
 
     def convert_from_value_observer(
-        self, value_observer_record: MetricRecord
+        self, value_observer_record: ExportRecord
     ) -> TimeSeries:
         timeseries = []
         agg_types = ["min", "max", "sum", "count", "last"]
         for agg_type in agg_types:
             name = value_observer_record.instrument.name + "_" + agg_type
-            value = getattr(value_observer_record.aggregator.checkpoint, agg_type)
+            value = getattr(
+                value_observer_record.aggregator.checkpoint, agg_type
+            )
             timeseries.append(
                 self.create_timeseries(value_observer_record, name, value)
             )
         return timeseries
 
-    # TODO: Implement convert from summary once quantile/summary support added to SDK
-    def convert_from_summary(self, summary_record: MetricRecord) -> TimeSeries:
+    # TODO: Implement convert from quantile once supported by SDK for Prometheus Summaries
+    def convert_from_quantile(self, summary_record: ExportRecord) -> TimeSeries:
         pass
 
     # pylint: disable=no-member
     def create_timeseries(
-        self, metric_record: MetricRecord, name, value: float
+        self, export_record: ExportRecord, name, value: float
     ) -> TimeSeries:
         timeseries = TimeSeries()
         # Add name label, record labels and resource labels
         timeseries.labels.append(self.create_label("__name__", name))
-        resource_attributes = metric_record.resource.attributes
+        resource_attributes = export_record.resource.attributes
         for label_name, label_value in resource_attributes.items():
             timeseries.labels.append(
                 self.create_label(label_name, label_value)
             )
-        for label in metric_record.labels:
-            if label[0][0] not in resource_attributes.keys():
+        for label in export_record.labels:
+            if label[0] not in resource_attributes.keys():
                 timeseries.labels.append(
-                    self.create_label(label[0][0], label[0][1])
+                    self.create_label(label[0], label[1])
                 )
         # Add sample
         timeseries.samples.append(
             self.create_sample(
-                metric_record.aggregator.last_update_timestamp, value
+                export_record.aggregator.last_update_timestamp, value
             )
         )
         return timeseries
@@ -272,15 +284,54 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     def create_label(self, name: str, value: str) -> Label:
         label = Label()
         # Label name must contain only alphanumeric characters and underscores
-        label.name = re.sub("[^0-9a-zA-Z]+", "_", name)
+        label.name = re.sub("[^0-9a-zA-Z_]+", "_", name)
         label.value = value
         return label
 
-    def build_message(self, data: Sequence[TimeSeries]) -> str:
-        pass
+    def build_message(self, timeseries: Sequence[TimeSeries]) -> bytes:
+        write_request = WriteRequest()
+        write_request.timeseries.extend(timeseries)
+        serialized_message = write_request.SerializeToString()
+        return snappy.compress(serialized_message)
 
     def get_headers(self) -> Dict:
-        pass
+        headers = {
+            "Content-Encoding": "snappy",
+            "Content-Type": "application/x-protobuf",
+            "X-Prometheus-Remote-Write-Version": "0.1.0",
+        }
+        if hasattr(self.config, "headers"):
+            for header_name, header_value in self.config.headers.items():
+                headers[header_name] = header_value
 
-    def send_message(self, message: str) -> int:
-        pass
+        if "Authorization" not in headers:
+            if hasattr(self.config, "bearer_token"):
+                headers["Authorization"] = "Bearer " + self.config.bearer_token
+            elif hasattr(self.config, "bearer_token_file"):
+                with open(self.config.bearer_token_file) as file:
+                    headers["Authorization"] = "Bearer " + file.readline()
+        return headers
+
+    def send_message(self, message: bytes, headers: Dict) -> MetricsExportResult:
+        auth = None
+        if hasattr(self.config, "basic_auth"):
+            basic_auth = self.config.basic_auth
+            if "password" in basic_auth:
+                auth = (basic_auth.username, basic_auth.password)
+            else:
+                with open(basic_auth.password_file) as file:
+                    auth = (basic_auth.username, file.readline())
+        response = requests.post(
+            self.config.endpoint, data=message, headers=headers, auth=auth
+        )
+        if response.status_code != 200:
+            logger.warning(
+                "POST request failed with status"
+                + str(response.status_code)
+                + " with reason: "
+                + response.reason
+                + "and content: "
+                + str(response.content)
+            )
+            return MetricsExportResult.FAILURE
+        return MetricsExportResult.SUCCESS
