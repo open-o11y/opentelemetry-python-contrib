@@ -40,112 +40,16 @@ from .gen.types_pb2 import Label, Sample, TimeSeries
 logger = logging.getLogger(__name__)
 
 
-class Config:
-    """
-    Configuration containing all necessary information to make remote write requests
-    Args:
-        endpoint: url where data will be sent (Required)
-        basic_auth: username and password for authentication (Optional)
-        bearer_token: token used for authentication (Optional)
-        bearer_token_file: filepath to file containing authentication token (Optional)
-        headers: additional headers for remote write request (Optional)
-    """
-
-    def __init__(
-        self,
-        endpoint: str,
-        basic_auth: Dict = None,
-        bearer_token: str = None,
-        bearer_token_file: str = None,
-        headers: Dict = None,
-    ):
-        self.endpoint = endpoint
-        if basic_auth:
-            self.basic_auth = basic_auth
-        if bearer_token:
-            self.bearer_token = bearer_token
-        if bearer_token_file:
-            self.bearer_token_file = bearer_token_file
-        if headers:
-            self.headers = headers
-
-    @property
-    def endpoint(self):
-        return self._endpoint
-
-    @endpoint.setter
-    def endpoint(self, endpoint: str):
-        if endpoint == "":
-            raise ValueError("endpoint required in config")
-        self._endpoint = endpoint
-
-    @property
-    def basic_auth(self):
-        return self._basic_auth
-
-    @basic_auth.setter
-    def basic_auth(self, basic_auth: Dict):
-        if hasattr(self, "bearer_token") or hasattr(self, "bearer_token_file"):
-            raise ValueError(
-                "config cannot contain basic_auth and bearer_token"
-            )
-        if "username" not in basic_auth:
-            raise ValueError("username required in basic_auth")
-        if "password" not in basic_auth and "password_file" not in basic_auth:
-            raise ValueError("password required in basic_auth")
-        if "password" in basic_auth and "password_file" in basic_auth:
-            raise ValueError(
-                "basic_auth cannot contain password and password_file"
-            )
-        self._basic_auth = basic_auth
-
-    @property
-    def bearer_token(self):
-        return self._bearer_token
-
-    @bearer_token.setter
-    def bearer_token(self, bearer_token: str):
-        if hasattr(self, "basic_auth"):
-            raise ValueError(
-                "config cannot contain basic_auth and bearer_token"
-            )
-        if hasattr(self, "bearer_token_file"):
-            raise ValueError(
-                "config cannot contain bearer_token and bearer_token_file"
-            )
-        self._bearer_token = bearer_token
-
-    @property
-    def bearer_token_file(self):
-        return self._bearer_token_file
-
-    @bearer_token_file.setter
-    def bearer_token_file(self, bearer_token_file: str):
-        if hasattr(self, "basic_auth"):
-            raise ValueError(
-                "config cannot contain basic_auth and bearer_token"
-            )
-        if hasattr(self, "bearer_token"):
-            raise ValueError(
-                "config cannot contain bearer_token and bearer_token_file"
-            )
-        self._bearer_token_file = bearer_token_file
-
-    @property
-    def headers(self):
-        return self._headers
-
-    @headers.setter
-    def headers(self, headers: Dict):
-        self._headers = headers
-
-
 class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     """
     Prometheus remote write metric exporter for OpenTelemetry.
 
     Args:
-        config: configuration object containing all necessary information to make remote write requests
+        endpoint: url where data will be sent (Required)
+        basic_auth: username and password for authentication (Optional)
+        bearer_token: token used for authentication (Optional)
+        bearer_token_file: filepath to file containing authentication token (Optional)
+        headers: additional headers for remote write request (Optional
     """
 
     def __init__(
@@ -173,7 +77,7 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     @endpoint.setter
     def endpoint(self, endpoint: str):
         if endpoint == "":
-            raise ValueError("endpoint required in config")
+            raise ValueError("endpoint required")
         self._endpoint = endpoint
 
     @property
@@ -184,7 +88,7 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     def basic_auth(self, basic_auth: Dict):
         if hasattr(self, "bearer_token") or hasattr(self, "bearer_token_file"):
             raise ValueError(
-                "config cannot contain basic_auth and bearer_token"
+                "cannot contain basic_auth and bearer_token"
             )
         if "username" not in basic_auth:
             raise ValueError("username required in basic_auth")
@@ -204,11 +108,11 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     def bearer_token(self, bearer_token: str):
         if hasattr(self, "basic_auth"):
             raise ValueError(
-                "config cannot contain basic_auth and bearer_token"
+                "cannot contain basic_auth and bearer_token"
             )
         if hasattr(self, "bearer_token_file"):
             raise ValueError(
-                "config cannot contain bearer_token and bearer_token_file"
+                "cannot contain bearer_token and bearer_token_file"
             )
         self._bearer_token = bearer_token
 
@@ -220,11 +124,11 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
     def bearer_token_file(self, bearer_token_file: str):
         if hasattr(self, "basic_auth"):
             raise ValueError(
-                "config cannot contain basic_auth and bearer_token"
+                "cannot contain basic_auth and bearer_token"
             )
         if hasattr(self, "bearer_token"):
             raise ValueError(
-                "config cannot contain bearer_token and bearer_token_file"
+                "cannot contain bearer_token and bearer_token_file"
             )
         self._bearer_token_file = bearer_token_file
 
@@ -386,15 +290,15 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
             "Content-Type": "application/x-protobuf",
             "X-Prometheus-Remote-Write-Version": "0.1.0",
         }
-        if hasattr(self.config, "headers"):
-            for header_name, header_value in self.config.headers.items():
+        if hasattr(self, "headers"):
+            for header_name, header_value in self.headers.items():
                 headers[header_name] = header_value
 
         if "Authorization" not in headers:
-            if hasattr(self.config, "bearer_token"):
-                headers["Authorization"] = "Bearer " + self.config.bearer_token
-            elif hasattr(self.config, "bearer_token_file"):
-                with open(self.config.bearer_token_file) as file:
+            if hasattr(self, "bearer_token"):
+                headers["Authorization"] = "Bearer " + self.bearer_token
+            elif hasattr(self, "bearer_token_file"):
+                with open(self.bearer_token_file) as file:
                     headers["Authorization"] = "Bearer " + file.readline()
         return headers
 
@@ -402,15 +306,15 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
         self, message: bytes, headers: Dict
     ) -> MetricsExportResult:
         auth = None
-        if hasattr(self.config, "basic_auth"):
-            basic_auth = self.config.basic_auth
+        if hasattr(self, "basic_auth"):
+            basic_auth = self.basic_auth
             if "password" in basic_auth:
                 auth = (basic_auth.username, basic_auth.password)
             else:
                 with open(basic_auth.password_file) as file:
                     auth = (basic_auth.username, file.readline())
         response = requests.post(
-            self.config.endpoint, data=message, headers=headers, auth=auth
+            self.endpoint, data=message, headers=headers, auth=auth
         )
         if response.status_code != 200:
             logger.warning(
