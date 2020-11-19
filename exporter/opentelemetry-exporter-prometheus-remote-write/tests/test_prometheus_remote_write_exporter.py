@@ -34,21 +34,95 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.util import get_dict_as_key
 
 
-class ResponseStub:
-    def __init__(self, status_code):
-        self.status_code = status_code
-        self.reason = "dummy_reason"
-        self.content = "dummy_content"
+class TestValidation(unittest.TestCase):
+    # Test cases to ensure exporter parameter validation works as intended
+    def test_valid_standard_param(self):
+        try:
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+            )
+        except ValueError:
+            self.fail("failed to instantiate exporter with valid params)")
+
+    def test_valid_basic_auth_param(self):
+        try:
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+                basic_auth={
+                    "username": "test_username",
+                    "password": "test_password",
+                },
+            )
+        except ValueError:
+            self.fail("failed to instantiate exporter with valid params)")
+
+    def test_valid_bearer_token_param(self):
+        try:
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+                bearer_token="test_bearer_token",
+            )
+        except ValueError:
+            self.fail("failed to instantiate exporter with valid params)")
+
+    def test_invalid_no_endpoint_param(self):
+        with self.assertRaises(ValueError):
+            PrometheusRemoteWriteMetricsExporter("")
+
+    def test_invalid_no_username_param(self):
+        with self.assertRaises(ValueError):
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+                basic_auth={"password": "test_password"},
+            )
+
+    def test_invalid_no_password_param(self):
+        with self.assertRaises(ValueError):
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+                basic_auth={"username": "test_username"},
+            )
+
+    def test_invalid_conflicting_passwords_param(self):
+        with self.assertRaises(ValueError):
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+                basic_auth={
+                    "username": "test_username",
+                    "password": "test_password",
+                    "password_file": "test_file",
+                },
+            )
+
+    def test_invalid_conflicting_bearer_tokens_param(self):
+        with self.assertRaises(ValueError):
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+                bearer_token="test_bearer_token",
+                bearer_token_file="test_file",
+            )
+
+    def test_invalid_conflicting_auth_param(self):
+        with self.assertRaises(ValueError):
+            PrometheusRemoteWriteMetricsExporter(
+                endpoint="/prom/test_endpoint",
+                basic_auth={
+                    "username": "test_username",
+                    "password": "test_password",
+                },
+                bearer_token="test_bearer_token",
+            )
 
 
-class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
+class TestConversion(unittest.TestCase):
     # Initializes test data that is reused across tests
     def setUp(self):
         self._test_metric = Counter(
             "testname", "testdesc", "testunit", int, None
         )
         self._exporter = PrometheusRemoteWriteMetricsExporter(
-            endpoint="/prom/test_endpoint")
+            endpoint="/prom/test_endpoint"
+        )
 
         def generate_record(aggregator_type):
             return ExportRecord(
@@ -64,18 +138,6 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             return (type(record.aggregator), name, value)
 
         self._converter_mock = mock.MagicMock(return_value=converter_method)
-
-    # Ensures export is successful with valid export_records and config
-    def test_export(self):
-        record = self._generate_record(SumAggregator)
-        self._exporter.convert_to_timeseries = mock.Mock(return_value=[])
-        self._exporter.build_message = mock.Mock(return_value=bytes())
-        self._exporter.get_headers = mock.Mock(return_value={})
-        self._exporter.send_message = mock.Mock(
-            return_value=MetricsExportResult.SUCCESS
-        )
-        result = self._exporter.export([record])
-        self.assertIs(result, MetricsExportResult.SUCCESS)
 
     # Ensures conversion to timeseries function works with valid aggregation types
     def test_valid_convert_to_timeseries(self):
@@ -240,17 +302,6 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         )
         self.assertEqual(timeseries, expected_timeseries)
 
-    # Verifies that build_message calls snappy.compress and returns SerializedString
-    @mock.patch("snappy.compress", return_value=bytes())
-    def test_build_message(self, mock_compress):
-        test_timeseries = [
-            TimeSeries(),
-            TimeSeries(),
-        ]
-        message = self._exporter.build_message(test_timeseries)
-        self.assertEqual(mock_compress.call_count, 1)
-        self.assertIsInstance(message, bytes)
-
     # Ensure correct headers are added when valid config is provided
     def test_get_headers(self):
         self._exporter.headers = {"Custom Header": "test_header"}
@@ -268,9 +319,36 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         self.assertEqual(headers.get("Authorization", ""), "Bearer test_token")
         self.assertEqual(headers.get("Custom Header", ""), "test_header")
 
-    def test_send_message(self):
-        # TODO: Iron out details of test after implementation
-        pass
+
+class ResponseStub:
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.reason = "dummy_reason"
+        self.content = "dummy_content"
+
+
+class TestExport(unittest.TestCase):
+    def setUp(self):
+        self._exporter = PrometheusRemoteWriteMetricsExporter(
+            endpoint="/prom/test_endpoint"
+        )
+
+    # Ensures export is successful with valid export_records and config
+    def test_export(self):
+        record = ExportRecord(
+            self._test_metric,
+            None,
+            SumAggregator(),
+            Resource({}),
+        )
+        self._exporter.convert_to_timeseries = mock.Mock(return_value=[])
+        self._exporter.build_message = mock.Mock(return_value=bytes())
+        self._exporter.get_headers = mock.Mock(return_value={})
+        self._exporter.send_message = mock.Mock(
+            return_value=MetricsExportResult.SUCCESS
+        )
+        result = self._exporter.export([record])
+        self.assertIs(result, MetricsExportResult.SUCCESS)
 
     @mock.patch("requests.post", return_value=ResponseStub(200))
     def test_valid_send_message(self, mock_post):
@@ -284,82 +362,13 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         self.assertEqual(mock_post.call_count, 1)
         self.assertEqual(result, MetricsExportResult.FAILURE)
 
-
-class TestValidation(unittest.TestCase):
-    # Test cases to ensure exporter parameter validation works as intended
-    def test_valid_standard_param(self):
-        try:
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-            )
-        except ValueError:
-            self.fail("failed to instantiate exporter with valid params)")
-
-    def test_valid_basic_auth_param(self):
-        try:
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-                basic_auth={
-                    "username": "test_username",
-                    "password": "test_password",
-                },
-            )
-        except ValueError:
-            self.fail("failed to instantiate exporter with valid params)")
-
-    def test_valid_bearer_token_param(self):
-        try:
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-                bearer_token="test_bearer_token",
-            )
-        except ValueError:
-            self.fail("failed to instantiate exporter with valid params)")
-
-    def test_invalid_no_endpoint_param(self):
-        with self.assertRaises(ValueError):
-            PrometheusRemoteWriteMetricsExporter("")
-
-    def test_invalid_no_username_param(self):
-        with self.assertRaises(ValueError):
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-                basic_auth={"password": "test_password"},
-            )
-
-    def test_invalid_no_password_param(self):
-        with self.assertRaises(ValueError):
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-                basic_auth={"username": "test_username"},
-            )
-
-    def test_invalid_conflicting_passwords_param(self):
-        with self.assertRaises(ValueError):
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-                basic_auth={
-                    "username": "test_username",
-                    "password": "test_password",
-                    "password_file": "test_file",
-                },
-            )
-
-    def test_invalid_conflicting_bearer_tokens_param(self):
-        with self.assertRaises(ValueError):
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-                bearer_token="test_bearer_token",
-                bearer_token_file="test_file",
-            )
-
-    def test_invalid_conflicting_auth_param(self):
-        with self.assertRaises(ValueError):
-            PrometheusRemoteWriteMetricsExporter(
-                endpoint="/prom/test_endpoint",
-                basic_auth={
-                    "username": "test_username",
-                    "password": "test_password",
-                },
-                bearer_token="test_bearer_token",
-            )
+    # Verifies that build_message calls snappy.compress and returns SerializedString
+    @mock.patch("snappy.compress", return_value=bytes())
+    def test_build_message(self, mock_compress):
+        test_timeseries = [
+            TimeSeries(),
+            TimeSeries(),
+        ]
+        message = self._exporter.build_message(test_timeseries)
+        self.assertEqual(mock_compress.call_count, 1)
+        self.assertIsInstance(message, bytes)
