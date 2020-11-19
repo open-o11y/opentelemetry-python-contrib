@@ -19,7 +19,7 @@ from opentelemetry.exporter.prometheus_remote_write import (
     Config,
     PrometheusRemoteWriteMetricsExporter,
 )
-from opentelemetry.exporter.prometheus_remote_write.prom_pb.types_pb2 import (
+from opentelemetry.exporter.prometheus_remote_write.gen.types_pb2 import (
     TimeSeries,
 )
 from opentelemetry.sdk.metrics import Counter

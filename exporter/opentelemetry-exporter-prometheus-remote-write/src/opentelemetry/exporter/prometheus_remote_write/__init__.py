@@ -13,13 +13,13 @@
 # limitations under the License.
 
 
+import logging
 import re
 from math import inf
 from typing import Dict, Sequence
 
 import requests
 import snappy
-import logging
 
 from opentelemetry.sdk.metrics.export import (
     ExportRecord,
@@ -34,8 +34,8 @@ from opentelemetry.sdk.metrics.export.aggregate import (
     ValueObserverAggregator,
 )
 
-from .prom_pb.remote_pb2 import WriteRequest
-from .prom_pb.types_pb2 import Label, Sample, TimeSeries
+from .gen.remote_pb2 import WriteRequest
+from .gen.types_pb2 import Label, Sample, TimeSeries
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +247,9 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
         return timeseries
 
     # TODO: Implement convert from quantile once supported by SDK for Prometheus Summaries
-    def convert_from_quantile(self, summary_record: ExportRecord) -> TimeSeries:
+    def convert_from_quantile(
+        self, summary_record: ExportRecord
+    ) -> TimeSeries:
         pass
 
     # pylint: disable=no-member
@@ -264,9 +266,7 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
             )
         for label in export_record.labels:
             if label[0] not in resource_attributes.keys():
-                timeseries.labels.append(
-                    self.create_label(label[0], label[1])
-                )
+                timeseries.labels.append(self.create_label(label[0], label[1]))
         # Add sample
         timeseries.samples.append(
             self.create_sample(
@@ -312,7 +312,9 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
                     headers["Authorization"] = "Bearer " + file.readline()
         return headers
 
-    def send_message(self, message: bytes, headers: Dict) -> MetricsExportResult:
+    def send_message(
+        self, message: bytes, headers: Dict
+    ) -> MetricsExportResult:
         auth = None
         if hasattr(self.config, "basic_auth"):
             basic_auth = self.config.basic_auth
