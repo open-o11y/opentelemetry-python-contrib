@@ -23,7 +23,7 @@ from opentelemetry.exporter.prometheus_remote_write.gen.types_pb2 import (
     TimeSeries,
 )
 from opentelemetry.sdk.metrics import Counter
-from opentelemetry.sdk.metrics.export import ExportRecord
+from opentelemetry.sdk.metrics.export import ExportRecord, MetricsExportResult
 from opentelemetry.sdk.metrics.export.aggregate import (
     HistogramAggregator,
     LastValueAggregator,
@@ -33,6 +33,13 @@ from opentelemetry.sdk.metrics.export.aggregate import (
 )
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.util import get_dict_as_key
+
+
+class ResponseStub:
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.reason = "dummy_reason"
+        self.content = "dummy_content"
 
 
 class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
@@ -57,6 +64,19 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             return (type(record.aggregator), name, value)
 
         self._converter_mock = mock.MagicMock(return_value=converter_method)
+
+    # Ensures export is successful with valid export_records and config
+    def test_export(self):
+        record = self._generate_record(SumAggregator)
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        exporter.convert_to_timeseries = mock.Mock(return_value=[])
+        exporter.build_message = mock.Mock(return_value=bytes())
+        exporter.get_headers = mock.Mock(return_value={})
+        exporter.send_message = mock.Mock(
+            return_value=MetricsExportResult.SUCCESS
+        )
+        result = exporter.export([record])
+        self.assertIs(result, MetricsExportResult.SUCCESS)
 
     # Ensures conversion to timeseries function works with valid aggregation types
     def test_valid_convert_to_timeseries(self):
@@ -223,3 +243,46 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         expected_timeseries.samples.append(exporter.create_sample(10, 5.0))
         timeseries = exporter.create_timeseries(export_record, "testname", 5.0)
         self.assertEqual(timeseries, expected_timeseries)
+
+    # Verifies that build_message calls snappy.compress and returns SerializedString
+    @mock.patch("snappy.compress", return_value=bytes())
+    def test_build_message(self, mock_compress):
+        test_timeseries = [
+            TimeSeries(),
+            TimeSeries(),
+        ]
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        message = exporter.build_message(test_timeseries)
+        self.assertEqual(mock_compress.call_count, 1)
+        self.assertIsInstance(message, bytes)
+
+    # Ensure correct headers are added when valid config is provided
+    def test_get_headers(self):
+        test_config = self._test_config
+        test_config.headers = {"Custom Header": "test_header"}
+        test_config.bearer_token = "test_token"
+        exporter = PrometheusRemoteWriteMetricsExporter(test_config)
+        headers = exporter.get_headers()
+        self.assertEqual(headers.get("Content-Encoding", ""), "snappy")
+        self.assertEqual(
+            headers.get("Content-Type", ""), "application/x-protobuf"
+        )
+        self.assertEqual(
+            headers.get("X-Prometheus-Remote-Write-Version", ""), "0.1.0"
+        )
+        self.assertEqual(headers.get("Authorization", ""), "Bearer test_token")
+        self.assertEqual(headers.get("Custom Header", ""), "test_header")
+
+    @mock.patch("requests.post", return_value=ResponseStub(200))
+    def test_valid_send_message(self, mock_post):
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        result = exporter.send_message(bytes(), {})
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(result, MetricsExportResult.SUCCESS)
+
+    @mock.patch("requests.post", return_value=ResponseStub(404))
+    def test_invalid_send_message(self, mock_post):
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        result = exporter.send_message(bytes(), {})
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(result, MetricsExportResult.FAILURE)
