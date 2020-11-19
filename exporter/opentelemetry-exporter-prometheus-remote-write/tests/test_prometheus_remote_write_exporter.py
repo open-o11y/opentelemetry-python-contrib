@@ -44,10 +44,11 @@ class ResponseStub:
 class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
     # Initializes test data that is reused across tests
     def setUp(self):
-        self._test_config = Config(endpoint="/prom/test_endpoint")
         self._test_metric = Counter(
             "testname", "testdesc", "testunit", int, None
         )
+        self._exporter = PrometheusRemoteWriteMetricsExporter(
+            endpoint="/prom/test_endpoint")
 
         def generate_record(aggregator_type):
             return ExportRecord(
@@ -67,25 +68,23 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
     # Ensures export is successful with valid export_records and config
     def test_export(self):
         record = self._generate_record(SumAggregator)
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        exporter.convert_to_timeseries = mock.Mock(return_value=[])
-        exporter.build_message = mock.Mock(return_value=bytes())
-        exporter.get_headers = mock.Mock(return_value={})
-        exporter.send_message = mock.Mock(
+        self._exporter.convert_to_timeseries = mock.Mock(return_value=[])
+        self._exporter.build_message = mock.Mock(return_value=bytes())
+        self._exporter.get_headers = mock.Mock(return_value={})
+        self._exporter.send_message = mock.Mock(
             return_value=MetricsExportResult.SUCCESS
         )
-        result = exporter.export([record])
+        result = self._exporter.export([record])
         self.assertIs(result, MetricsExportResult.SUCCESS)
 
     # Ensures conversion to timeseries function works with valid aggregation types
     def test_valid_convert_to_timeseries(self):
         timeseries_mock_method = mock.Mock(return_value=["test_value"])
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        exporter.convert_from_sum = timeseries_mock_method
-        exporter.convert_from_min_max_sum_count = timeseries_mock_method
-        exporter.convert_from_histogram = timeseries_mock_method
-        exporter.convert_from_last_value = timeseries_mock_method
-        exporter.convert_from_value_observer = timeseries_mock_method
+        self._exporter.convert_from_sum = timeseries_mock_method
+        self._exporter.convert_from_min_max_sum_count = timeseries_mock_method
+        self._exporter.convert_from_histogram = timeseries_mock_method
+        self._exporter.convert_from_last_value = timeseries_mock_method
+        self._exporter.convert_from_value_observer = timeseries_mock_method
         test_records = [
             self._generate_record(SumAggregator),
             self._generate_record(MinMaxSumCountAggregator),
@@ -93,21 +92,20 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             self._generate_record(LastValueAggregator),
             self._generate_record(ValueObserverAggregator),
         ]
-        data = exporter.convert_to_timeseries(test_records)
+        data = self._exporter.convert_to_timeseries(test_records)
         self.assertEqual(len(data), 5)
         for timeseries in data:
             self.assertEqual(timeseries, "test_value")
 
         no_type_records = [self._generate_record(lambda: None)]
         with self.assertRaises(ValueError):
-            exporter.convert_to_timeseries(no_type_records)
+            self._exporter.convert_to_timeseries(no_type_records)
 
     # Ensures conversion to timeseries fails for unsupported aggregation types
     def test_invalid_convert_to_timeseries(self):
         no_type_records = [self._generate_record(lambda: None)]
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
         with self.assertRaises(ValueError):
-            exporter.convert_to_timeseries(no_type_records)
+            self._exporter.convert_to_timeseries(no_type_records)
 
     # Ensures sum aggregator is correctly converted to timeseries
     def test_convert_from_sum(self):
@@ -116,9 +114,8 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         sum_record.aggregator.update(2)
         sum_record.aggregator.take_checkpoint()
 
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        exporter.create_timeseries = self._converter_mock()
-        timeseries = exporter.convert_from_sum(sum_record)
+        self._exporter.create_timeseries = self._converter_mock()
+        timeseries = self._exporter.convert_from_sum(sum_record)
         self.assertEqual(timeseries[0], (SumAggregator, "testname", 5))
 
     # Ensures sum min_max_count aggregator is correctly converted to timeseries
@@ -130,9 +127,8 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         min_max_sum_count_record.aggregator.update(1)
         min_max_sum_count_record.aggregator.take_checkpoint()
 
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        exporter.create_timeseries = self._converter_mock()
-        timeseries = exporter.convert_from_min_max_sum_count(
+        self._exporter.create_timeseries = self._converter_mock()
+        timeseries = self._exporter.convert_from_min_max_sum_count(
             min_max_sum_count_record
         )
         self.assertEqual(
@@ -156,9 +152,8 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         histogram_record.aggregator.update(-1)
         histogram_record.aggregator.take_checkpoint()
 
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        exporter.create_timeseries = self._converter_mock()
-        timeseries = exporter.convert_from_histogram(histogram_record)
+        self._exporter.create_timeseries = self._converter_mock()
+        timeseries = self._exporter.convert_from_histogram(histogram_record)
         self.assertEqual(
             timeseries[0], (HistogramAggregator, 'testname_bucket{le="0"}', 1)
         )
@@ -177,9 +172,8 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         last_value_record.aggregator.update(5)
         last_value_record.aggregator.take_checkpoint()
 
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        exporter.create_timeseries = self._converter_mock()
-        timeseries = exporter.convert_from_last_value(last_value_record)
+        self._exporter.create_timeseries = self._converter_mock()
+        timeseries = self._exporter.convert_from_last_value(last_value_record)
         self.assertEqual(timeseries[0], (LastValueAggregator, "testname", 5))
 
     # Ensures value observer aggregator is correctly converted to timeseries
@@ -190,9 +184,8 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         value_observer_record.aggregator.update(2)
         value_observer_record.aggregator.take_checkpoint()
 
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        exporter.create_timeseries = self._converter_mock()
-        timeseries = exporter.convert_from_value_observer(
+        self._exporter.create_timeseries = self._converter_mock()
+        timeseries = self._exporter.convert_from_value_observer(
             value_observer_record
         )
         self.assertEqual(
@@ -228,19 +221,23 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             sum_aggregator,
             Resource({"resource_name": "resource_value"}),
         )
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+
         expected_timeseries = TimeSeries()
         expected_timeseries.labels.append(
-            exporter.create_label("__name__", "testname")
+            self._exporter.create_label("__name__", "testname")
         )
         expected_timeseries.labels.append(
-            exporter.create_label("resource_name", "resource_value")
+            self._exporter.create_label("resource_name", "resource_value")
         )
         expected_timeseries.labels.append(
-            exporter.create_label("record_name", "record_value")
+            self._exporter.create_label("record_name", "record_value")
         )
-        expected_timeseries.samples.append(exporter.create_sample(10, 5.0))
-        timeseries = exporter.create_timeseries(export_record, "testname", 5.0)
+        expected_timeseries.samples.append(
+            self._exporter.create_sample(10, 5.0),
+        )
+        timeseries = self._exporter.create_timeseries(
+            export_record, "testname", 5.0,
+        )
         self.assertEqual(timeseries, expected_timeseries)
 
     # Verifies that build_message calls snappy.compress and returns SerializedString
@@ -250,18 +247,17 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
             TimeSeries(),
             TimeSeries(),
         ]
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        message = exporter.build_message(test_timeseries)
+        message = self._exporter.build_message(test_timeseries)
         self.assertEqual(mock_compress.call_count, 1)
         self.assertIsInstance(message, bytes)
 
     # Ensure correct headers are added when valid config is provided
     def test_get_headers(self):
-        test_config = self._test_config
-        test_config.headers = {"Custom Header": "test_header"}
-        test_config.bearer_token = "test_token"
-        exporter = PrometheusRemoteWriteMetricsExporter(test_config)
-        headers = exporter.get_headers()
+        self._exporter.headers = {"Custom Header": "test_header"}
+        self._exporter.headers = {"Custom Header": "test_header"}
+        self._exporter.bearer_token = "test_token"
+
+        headers = self._exporter.get_headers()
         self.assertEqual(headers.get("Content-Encoding", ""), "snappy")
         self.assertEqual(
             headers.get("Content-Type", ""), "application/x-protobuf"
@@ -276,10 +272,22 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         # TODO: Iron out details of test after implementation
         pass
 
+    @mock.patch("requests.post", return_value=ResponseStub(200))
+    def test_valid_send_message(self, mock_post):
+        result = self._exporter.send_message(bytes(), {})
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(result, MetricsExportResult.SUCCESS)
 
-class TestConfig(unittest.TestCase):
-    # Test cases to ensure exporter config validation works as intended
-    def test_valid_standard_config(self):
+    @mock.patch("requests.post", return_value=ResponseStub(404))
+    def test_invalid_send_message(self, mock_post):
+        result = self._exporter.send_message(bytes(), {})
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(result, MetricsExportResult.FAILURE)
+
+
+class TestValidation(unittest.TestCase):
+    # Test cases to ensure exporter parameter validation works as intended
+    def test_valid_standard_param(self):
         try:
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
@@ -287,7 +295,7 @@ class TestConfig(unittest.TestCase):
         except ValueError:
             self.fail("failed to instantiate exporter with valid params)")
 
-    def test_valid_basic_auth_config(self):
+    def test_valid_basic_auth_param(self):
         try:
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
@@ -299,7 +307,7 @@ class TestConfig(unittest.TestCase):
         except ValueError:
             self.fail("failed to instantiate exporter with valid params)")
 
-    def test_valid_bearer_token_config(self):
+    def test_valid_bearer_token_param(self):
         try:
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
@@ -308,25 +316,25 @@ class TestConfig(unittest.TestCase):
         except ValueError:
             self.fail("failed to instantiate exporter with valid params)")
 
-    def test_invalid_no_endpoint_config(self):
+    def test_invalid_no_endpoint_param(self):
         with self.assertRaises(ValueError):
             PrometheusRemoteWriteMetricsExporter("")
 
-    def test_invalid_no_username_config(self):
+    def test_invalid_no_username_param(self):
         with self.assertRaises(ValueError):
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
                 basic_auth={"password": "test_password"},
             )
 
-    def test_invalid_no_password_config(self):
+    def test_invalid_no_password_param(self):
         with self.assertRaises(ValueError):
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
                 basic_auth={"username": "test_username"},
             )
 
-    def test_invalid_conflicting_passwords_config(self):
+    def test_invalid_conflicting_passwords_param(self):
         with self.assertRaises(ValueError):
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
@@ -337,7 +345,7 @@ class TestConfig(unittest.TestCase):
                 },
             )
 
-    def test_invalid_conflicting_bearer_tokens_config(self):
+    def test_invalid_conflicting_bearer_tokens_param(self):
         with self.assertRaises(ValueError):
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
@@ -345,7 +353,7 @@ class TestConfig(unittest.TestCase):
                 bearer_token_file="test_file",
             )
 
-    def test_invalid_conflicting_auth_config(self):
+    def test_invalid_conflicting_auth_param(self):
         with self.assertRaises(ValueError):
             PrometheusRemoteWriteMetricsExporter(
                 endpoint="/prom/test_endpoint",
@@ -355,17 +363,3 @@ class TestConfig(unittest.TestCase):
                 },
                 bearer_token="test_bearer_token",
             )
-
-    @mock.patch("requests.post", return_value=ResponseStub(200))
-    def test_valid_send_message(self, mock_post):
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        result = exporter.send_message(bytes(), {})
-        self.assertEqual(mock_post.call_count, 1)
-        self.assertEqual(result, MetricsExportResult.SUCCESS)
-
-    @mock.patch("requests.post", return_value=ResponseStub(404))
-    def test_invalid_send_message(self, mock_post):
-        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
-        result = exporter.send_message(bytes(), {})
-        self.assertEqual(mock_post.call_count, 1)
-        self.assertEqual(result, MetricsExportResult.FAILURE)
