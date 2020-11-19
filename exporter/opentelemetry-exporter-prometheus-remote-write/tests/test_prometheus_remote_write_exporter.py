@@ -335,8 +335,9 @@ class TestExport(unittest.TestCase):
 
     # Ensures export is successful with valid export_records and config
     def test_export(self):
+        test_metric = Counter("testname", "testdesc", "testunit", int, None)
         record = ExportRecord(
-            self._test_metric,
+            test_metric,
             None,
             SumAggregator(),
             Resource({}),
