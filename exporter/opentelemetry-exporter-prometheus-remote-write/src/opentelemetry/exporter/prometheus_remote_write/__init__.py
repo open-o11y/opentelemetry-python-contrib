@@ -277,7 +277,7 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
 
     def create_sample(self, timestamp: int, value: float) -> Sample:
         sample = Sample()
-        sample.timestamp = timestamp
+        sample.timestamp = int(timestamp / 1000000)
         sample.value = value
         return sample
 
@@ -289,6 +289,7 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
         return label
 
     def build_message(self, timeseries: Sequence[TimeSeries]) -> bytes:
+        print(timeseries)
         write_request = WriteRequest()
         write_request.timeseries.extend(timeseries)
         serialized_message = write_request.SerializeToString()
@@ -328,12 +329,10 @@ class PrometheusRemoteWriteMetricsExporter(MetricsExporter):
         )
         if response.status_code != 200:
             logger.warning(
-                "POST request failed with status"
-                + str(response.status_code)
-                + " with reason: "
-                + response.reason
-                + "and content: "
-                + str(response.content)
+                "POST request failed with status %s with reason: %s and content: %s",
+                str(response.status_code),
+                response.reason,
+                str(response.content),
             )
             return MetricsExportResult.FAILURE
         return MetricsExportResult.SUCCESS

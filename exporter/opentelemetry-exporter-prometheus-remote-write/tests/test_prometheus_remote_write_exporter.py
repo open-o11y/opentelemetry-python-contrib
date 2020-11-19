@@ -35,6 +35,13 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.util import get_dict_as_key
 
 
+class ResponseStub:
+    def __init__(self, status_code):
+        self.status_code = status_code
+        self.reason = "dummy_reason"
+        self.content = "dummy_content"
+
+
 class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
     # Initializes test data that is reused across tests
     def setUp(self):
@@ -266,6 +273,16 @@ class TestPrometheusRemoteWriteMetricExporter(unittest.TestCase):
         self.assertEqual(headers.get("Authorization", ""), "Bearer test_token")
         self.assertEqual(headers.get("Custom Header", ""), "test_header")
 
-    def test_send_message(self):
-        # TODO: Iron out details of test after implementation
-        pass
+    @mock.patch("requests.post", return_value=ResponseStub(200))
+    def test_valid_send_message(self, mock_post):
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        result = exporter.send_message(bytes(), {})
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(result, MetricsExportResult.SUCCESS)
+
+    @mock.patch("requests.post", return_value=ResponseStub(404))
+    def test_invalid_send_message(self, mock_post):
+        exporter = PrometheusRemoteWriteMetricsExporter(self._test_config)
+        result = exporter.send_message(bytes(), {})
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(result, MetricsExportResult.FAILURE)
