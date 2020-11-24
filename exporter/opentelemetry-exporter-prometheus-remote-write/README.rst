@@ -1,8 +1,12 @@
 OpenTelemetry Prometheus Remote Write Exporter
 ==============================================
 
-This library allows exporting metric data to `Prometheus Write Integrated Backends
-<https://prometheus.io/docs/operating/integrations/>`_. Development is currently in progress.
+This library allows exporting metric data to `Prometheus Remote Write Integrated Backends
+<https://prometheus.io/docs/operating/integrations/>`_. Latest `types.proto
+<https://github.com/prometheus/prometheus/blob/master/prompb/types.proto>` and `remote.proto
+<https://github.com/prometheus/prometheus/blob/master/prompb/remote.proto>` Protocol Buffers 
+used to create WriteRequest objects were taken from Prometheus repository. Development is 
+currently in progress.
 
 Installation
 ------------
@@ -19,5 +23,5 @@ Installation
 References
 ----------
 
-* `Datadog <https://prometheus.io/>`_
+* `Prometheus <https://prometheus.io/>`_
 * `OpenTelemetry Project <https://opentelemetry.io/>`_
