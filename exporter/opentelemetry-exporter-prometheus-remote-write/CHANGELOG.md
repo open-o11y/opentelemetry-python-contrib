@@ -11,3 +11,5 @@
   ((#207)[https://github.com/open-telemetry/opentelemetry-python-contrib/pull/207])
 - Add request methods
   ((#212)[https://github.com/open-telemetry/opentelemetry-python-contrib/pull/212])
+- Add integration tests in opentelemetry-docker-tests
+  ((#216)[https://github.com/open-telemetry/opentelemetry-python-contrib/pull/216])
