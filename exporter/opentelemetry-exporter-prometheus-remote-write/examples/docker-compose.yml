@@ -1,0 +1,12 @@
+  cortex:
+    image: quay.io/cortexproject/cortex:v1.5.0
+    command:
+      - -config.file=./config/cortex-config.yml
+    volumes:
+      - ./prometheus-remote-write-cortex/cortex-config.yml:/config/cortex-config.yml:ro
+    ports:
+      - 9009:9009
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - 3000:3000
