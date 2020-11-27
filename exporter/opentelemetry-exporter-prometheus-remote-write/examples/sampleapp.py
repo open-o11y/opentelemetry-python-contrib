@@ -1,26 +1,27 @@
-from logging import INFO
-from opentelemetry.sdk.metrics.export.aggregate import MinMaxSumCountAggregator
-import psutil
-import time
-import random
 import logging
+import random
 import sys
+import time
+from logging import INFO
+
+import psutil
+
 from opentelemetry import metrics
-from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.exporter.prometheus_remote_write import (
     PrometheusRemoteWriteMetricsExporter,
 )
-from opentelemetry.sdk.metrics.view import View, ViewConfig
-
+from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export.aggregate import (
     HistogramAggregator,
     LastValueAggregator,
     MinMaxSumCountAggregator,
     SumAggregator,
 )
+from opentelemetry.sdk.metrics.view import View, ViewConfig
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 metrics.set_meter_provider(MeterProvider())
 meter = metrics.get_meter(__name__)
 exporter = PrometheusRemoteWriteMetricsExporter(
@@ -114,18 +115,17 @@ counter_view2 = View(
     label_keys=["os_type"],
     view_config=ViewConfig.LABEL_KEYS,
 )
-# This view has ViewConfig set to UNGROUPED, meaning all recorded metrics take
-# the labels directly without and consideration for label_keys
+
 counter_view3 = View(
     request_last_value,
     LastValueAggregator,
-    label_keys=["environment"],  # is not used due to ViewConfig.UNGROUPED
+    label_keys=["environment"],
     view_config=ViewConfig.UNGROUPED,
 )
 size_view = View(
     requests_size_histogram,
     HistogramAggregator,
-    label_keys=["environment"],  # is not used due to ViewConfig.UNGROUPED
+    label_keys=["environment"],
     aggregator_config={"bounds": [20, 40, 60, 80, 100]},
     view_config=ViewConfig.UNGROUPED,
 )

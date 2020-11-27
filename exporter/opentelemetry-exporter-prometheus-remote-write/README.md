@@ -18,7 +18,7 @@ The controller periodically collects data and passes it to the exporter. This
 exporter then converts the data into [`timeseries`](https://prometheus.io/docs/concepts/data_model/) and sends it to the Remote Write integrated backend through HTTP
 POST requests. The metrics collection datapath is shown below:
 
-![Metrics collection datapath](https://user-images.githubusercontent.com/20804975/100286063-157f2a80-2f40-11eb-819d-f0aa46c1c2c8.png)
+![controller_datapath_final](https://user-images.githubusercontent.com/20804975/100486582-79d1f380-30d2-11eb-8d17-d3e58e5c34e9.png)
 
 See the `example` folder for a demo usage of this exporter
 
@@ -138,11 +138,10 @@ Users can add TLS to the exporter's HTTP Client by providing certificate and key
 * Histogram
 * LastValue
 * ValueObserver
-* Summary
 
 ## Error Handling
-In general, errors are returned to the calling function. The exception is for
-the exporter's `export()` method where any error status code is logged as a
+In general, errors are raised by the calling function. The exception is for
+failed requests where any error status code is logged as a
 warning instead.
 
 This is because the exporter does not implement any retry logic
@@ -172,5 +171,5 @@ If you would like to learn more about the exporter's structure and design decisi
 
 [Design Document](TODO: add link)
 
-This document is not in this repo as it contains large images which will
-significantly increase the size this repo.
+This document is stored elsewhere as it contains large images which will
+significantly increase the size of this repo.
