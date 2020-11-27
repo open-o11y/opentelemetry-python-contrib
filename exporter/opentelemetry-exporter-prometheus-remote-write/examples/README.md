@@ -32,6 +32,7 @@ See the `example` folder for a demo usage of this exporter
    * [Table of Contents](#table-of-contents)
       * [Installation](#installation)
       * [Quickstart](#quickstart)
+      * [Example](#example)
       * [Configuring the Exporter](#configuring-the-exporter)
       * [Securing the Exporter](#securing-the-exporter)
          * [Authentication](#authentication)
@@ -69,6 +70,11 @@ exporter = PrometheusRemoteWriteMetricsExporter(endpoint="endpoint_here") # add 
 
 metrics.get_meter_provider().start_pipeline(meter, exporter, 5)
 ```
+
+## Example
+
+* clone core
+* TODO: change dockerfile if release 0.16 is public
 ## Configuring the Exporter
 
 The exporter can be configured through parameters passed to the constructor.
