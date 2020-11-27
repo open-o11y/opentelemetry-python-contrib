@@ -8,9 +8,8 @@ import sys
 from opentelemetry import metrics
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.exporter.prometheus_remote_write import (
-    PrometheusRemoteWriteMetricsExporter
+    PrometheusRemoteWriteMetricsExporter,
 )
-from opentelemetry.sdk.metrics.export import ConsoleMetricsExporter
 from opentelemetry.sdk.metrics.view import View, ViewConfig
 
 from opentelemetry.sdk.metrics.export.aggregate import (
@@ -26,7 +25,7 @@ metrics.set_meter_provider(MeterProvider())
 meter = metrics.get_meter(__name__)
 exporter = PrometheusRemoteWriteMetricsExporter(
     endpoint="http://cortex:9009/api/prom/push",
-    headers={"X-Scope-Org-ID": "5"}
+    headers={"X-Scope-Org-ID": "5"},
 )
 metrics.get_meter_provider().start_pipeline(meter, exporter, 1)
 testing_labels = {"environment": "testing"}
@@ -137,7 +136,7 @@ meter.register_view(size_view)
 
 # Load generator
 num = random.randint(0, 1000)
-while(True):
+while True:
     # counters
     requests_counter.add(num % 131 + 200, testing_labels)
     request_min_max.add(num % 181 + 200, testing_labels)
