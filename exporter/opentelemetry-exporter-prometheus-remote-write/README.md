@@ -98,6 +98,8 @@ exporter = PrometheusRemoteWriteMetricsExporter(
     tls_config={
         "cert_file": "path/to/file",
         "key_file": "path/to/file",
+        "ca_file": "path_to_file",
+		"insecure_skip_verify": true, # for developing purposes
     }
 )
 
