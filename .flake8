@@ -4,7 +4,7 @@ ignore =
   F401  # unused import, defer to pylint
   W503  # allow line breaks before binary ops
   W504  # allow line breaks after binary ops
-  E203  # allow whitespace before ':' (https://github.com/psf/black#slices) 
+  E203  # allow whitespace before ':' (https://github.com/psf/black#slices)
 exclude =
   .bzr
   .git
@@ -20,6 +20,7 @@ exclude =
   exporter/opentelemetry-exporter-jaeger/src/opentelemetry/exporter/jaeger/gen/
   exporter/opentelemetry-exporter-jaeger/build/*
   exporter/opentelemetry-exporter-prometheus-remote-write/src/opentelemetry/exporter/prometheus_remote_write/gen
+  exporter/opentelemetry-exporter-prometheus-remote-write/examples
   docs/examples/opentelemetry-example-app/src/opentelemetry_example_app/grpc/gen/
   docs/examples/opentelemetry-example-app/build/*
   opentelemetry-python-core/
