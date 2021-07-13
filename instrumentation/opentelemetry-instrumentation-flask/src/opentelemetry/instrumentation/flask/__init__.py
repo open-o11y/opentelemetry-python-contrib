@@ -129,15 +129,21 @@ def _wrapped_before_request(request_hook=None, tracer=None):
             return
         flask_request_environ = flask.request.environ
         span_name = get_default_span_name()
-        token = context.attach(
-            extract(flask_request_environ, getter=otel_wsgi.wsgi_getter)
-        )
+
+        ctx = span_kind = None
+
+        if trace.get_current_span() is trace.INVALID_SPAN:
+            ctx = extract(flask_request_environ, getter=otel_wsgi.wsgi_getter)
+            token = context.attach(ctx)
+            span_kind = trace.SpanKind.SERVER
 
         span = tracer.start_span(
             span_name,
-            kind=trace.SpanKind.SERVER,
+            ctx,
+            kind=span_kind,
             start_time=flask_request_environ.get(_ENVIRON_STARTTIME_KEY),
         )
+
         if request_hook:
             request_hook(span, flask_request_environ)
 
@@ -158,7 +164,8 @@ def _wrapped_before_request(request_hook=None, tracer=None):
         activation.__enter__()  # pylint: disable=E1101
         flask_request_environ[_ENVIRON_ACTIVATION_KEY] = activation
         flask_request_environ[_ENVIRON_SPAN_KEY] = span
-        flask_request_environ[_ENVIRON_TOKEN] = token
+        if ctx is not None:
+            flask_request_environ[_ENVIRON_TOKEN] = token
 
     return _before_request
 
@@ -181,7 +188,9 @@ def _teardown_request(exc):
         activation.__exit__(
             type(exc), exc, getattr(exc, "__traceback__", None)
         )
-    context.detach(flask.request.environ.get(_ENVIRON_TOKEN))
+    flask_request_environ = flask.request.environ
+    if _ENVIRON_TOKEN in flask_request_environ.keys():
+        context.detach(flask.request.environ.get(_ENVIRON_TOKEN))
 
 
 class _InstrumentedFlask(flask.Flask):
