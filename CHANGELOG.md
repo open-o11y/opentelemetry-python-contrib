@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#581](https://github.com/open-telemetry/opentelemetry-python-contrib/pull/581))
 - `opentelemetry-instrumentation-botocore` Suppress botocore downstream instrumentation like urllib3
   ([#563](https://github.com/open-telemetry/opentelemetry-python-contrib/pull/563))
+- `opentelemetry-instrumentation-asgi`, `opentelemetry-instrumentation-aiohttp-client`, `openetelemetry-instrumentation-fastapi`, `opentelemetry-instrumentation-starlette`, `opentelemetry-instrumentation-urllib`, `opentelemetry-instrumentation-urllib3` Added `request_hook` and `response_hook` callbacks ([#576](https://github.com/open-telemetry/opentelemetry-python-contrib/pull/576))
 
 ### Added
 - `opentelemetry-instrumentation-httpx` Add `httpx` instrumentation
